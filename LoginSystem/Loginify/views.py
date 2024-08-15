@@ -1,14 +1,10 @@
 import json
 from django.shortcuts import render , redirect
 from django.http import HttpResponse, JsonResponse
-from .forms import SignUpForm, LoginForm
+from .forms import  LoginForm, SignupForm
 from .models import UserDetails
-from django.contrib.auth import authenticate, login as auth_login
 from django.contrib import messages
-from django.contrib.auth.hashers import check_password
-from django.contrib.sessions.models import Session
 from django.views.decorators.csrf import csrf_exempt
-
 from .Serializers import UserSerializer
 
 
@@ -17,37 +13,35 @@ def print(request):
 
 def signup(request):
     if request.method == 'POST':
-        form = SignUpForm(request.POST)
-        if form.is_valid():
-            form.save()  
-            messages.success(request, 'Account created successfully!')
-            return redirect('login')  
+        signupForm = SignupForm(request.POST)
+        if signupForm.is_valid():
+            signupForm.save()
+            messages.success(
+                request, 'Account created successfully. Please log in.')
+            return redirect('login')
     else:
-        form = SignUpForm()
-    return render(request, 'Loginify/signup.html', {'form': form})
+        signupForm = SignupForm()
+    return render(request, 'Loginify/signup.html', {'signupForm': signupForm})
 
 
 
 def login(request):
     if request.method == 'POST':
-        form = LoginForm(request.POST)
-        if form.is_valid():
-            username = form.cleaned_data.get('Username')
-            password = form.cleaned_data.get('Password')
+        loginForm = LoginForm(request.POST)
+        if loginForm.is_valid():
+            email = loginForm.cleaned_data.get('Email')
+            password = loginForm.cleaned_data.get('Password')
             
             try:
-                user = UserDetails.objects.get(Username=username)
-                if check_password(password, user.Password):
-                    request.session['user'] = username
-                    return redirect('login_success')
-                else:
-                    messages.error(request, 'Invalid username or password.')
+                userDetails = UserDetails.objects.get(
+                    Email=email, Password=password)
+                request.session['user'] = email      
+                return redirect('login_success')
             except UserDetails.DoesNotExist:
-                messages.error(request, 'Invalid username or password.')
+                messages.error(request, 'Invalid email or password')
     else:
-        form = LoginForm()
-
-    return render(request, 'Loginify/login.html', {'form': form})
+        loginForm = LoginForm()
+    return render(request, 'Loginify/login.html', {'loginForm': loginForm})
 
 
 def login_success(request):
@@ -64,24 +58,46 @@ def all_user_data(request):
             return JsonResponse(serialized_data.data,safe=False)
         except:
             return JsonResponse({"error":"Failed to fetch data"},status=500) 
+        
+    if request.method == 'POST':
+        input_data = json.loads(request.body)
+        serialized_data = UserSerializer(data=input_data)
+
+        if serialized_data.is_valid():
+            serialized_data.save()
+            return JsonResponse(serialized_data.data, status=201)
+        else:
+            return JsonResponse(serialized_data.errors, status=400)
     
 
 @csrf_exempt
-def single_user_data(request,pk):
+def single_user_data(request,email):
     if request.method =='GET':
         try:
-            user_data=UserDetails.objects.get(pk=pk)
+            user_data=UserDetails.objects.get(Email=email)
             serialized_data = UserSerializer(user_data)
             return JsonResponse(serialized_data.data,safe=False)
         
         except UserDetails.DoesNotExist:
-            return JsonResponse({"error":"User not found"},status=404) 
+            return JsonResponse({"error":"User not found"},status=500) 
+        
+    if request.method == 'PUT':
+        try:
+            user_data = UserDetails.objects.get(Email=email)
+            input_data = json.loads(request.body)
+            serialized_data = UserSerializer(user_data, data=input_data)
+
+            if serialized_data.is_valid():
+                serialized_data.save()
+                return JsonResponse(serialized_data.data, status=200)
+        except:
+            return JsonResponse({"error": "Failed to update data"}, status=500)
     
         
 
     if request.method == 'PATCH':
             try:
-                user_data = UserDetails.objects.get(Username=pk)
+                user_data = UserDetails.objects.get(Email=email)
                 input_data = json.loads(request.body)
                 serialized_data = UserSerializer(user_data, data=input_data, partial=True)
 
@@ -93,11 +109,7 @@ def single_user_data(request,pk):
             except UserDetails.DoesNotExist:
                 return JsonResponse({"error": "User not found"}, status=404)
 
-    return JsonResponse({"error": "Invalid request method"}, status=400)
 
-
-@csrf_exempt
-def delete_user_by_email(request, email):
     if request.method == 'DELETE':
         try:
             user = UserDetails.objects.get(Email=email)
